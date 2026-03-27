@@ -7,13 +7,29 @@ from multiprocessing.connection import Connection
 from tempfile import NamedTemporaryFile
 from typing import List, Optional, Tuple
 
-import soundfile
+import wave as wave_module
+
+import numpy as np
 
 # FIXME: remove FastAPI dependency
 from fastapi import HTTPException, Request
 
 from .model import AudioQuery
 from .synthesis_engine import make_synthesis_engines
+
+
+def _write_wav(file, data, samplerate):
+    if isinstance(data, np.ndarray):
+        if data.dtype in (np.float32, np.float64):
+            data = (data * 32767).astype(np.int16)
+        elif data.dtype != np.int16:
+            data = data.astype(np.int16)
+    channels = 1 if data.ndim == 1 else data.shape[1]
+    with wave_module.open(file, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)
+        wf.setframerate(samplerate)
+        wf.writeframes(data.tobytes())
 
 
 class CancellableEngine:
@@ -210,10 +226,8 @@ def start_synthesis_subprocess(
                 sub_proc_con.send("")
                 continue
             wave = _engine._synthesis_impl(query, speaker_id)
-            with NamedTemporaryFile(delete=False) as f:
-                soundfile.write(
-                    file=f, data=wave, samplerate=query.outputSamplingRate, format="WAV"
-                )
+            with NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                _write_wav(f, wave, query.outputSamplingRate)
             sub_proc_con.send(f.name)
         except Exception:
             sub_proc_con.close()

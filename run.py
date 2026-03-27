@@ -6,8 +6,10 @@ import json
 import multiprocessing
 import os
 import re
+import struct
 import sys
 import traceback
+import wave as wave_module
 import zipfile
 from distutils.version import LooseVersion
 from functools import lru_cache
@@ -16,8 +18,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryFile
 from typing import Dict, List, Optional
 
+import numpy as np
 import requests
-import soundfile
 import uvicorn
 from fastapi import FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -83,6 +85,22 @@ from voicevox_engine.utility import (
 
 def b64encode_str(s):
     return base64.b64encode(s).decode("utf-8")
+
+
+def write_wav(file, data, samplerate):
+    """soundfileの代替としてWAVファイルを書き出す"""
+    if isinstance(data, np.ndarray):
+        if data.dtype == np.float32 or data.dtype == np.float64:
+            data = (data * 32767).astype(np.int16)
+        elif data.dtype != np.int16:
+            data = data.astype(np.int16)
+    channels = 1 if data.ndim == 1 else data.shape[1]
+    sampwidth = 2  # 16-bit
+    with wave_module.open(file, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(sampwidth)
+        wf.setframerate(samplerate)
+        wf.writeframes(data.tobytes())
 
 
 def set_output_log_utf8() -> None:
@@ -392,10 +410,8 @@ def generate_app(
             enable_interrogative_upspeak=enable_interrogative_upspeak,
         )
 
-        with NamedTemporaryFile(delete=False) as f:
-            soundfile.write(
-                file=f, data=wave, samplerate=query.outputSamplingRate, format="WAV"
-            )
+        with NamedTemporaryFile(delete=False, suffix=".wav") as f:
+            write_wav(f, wave, query.outputSamplingRate)
 
         return FileResponse(
             f.name,
@@ -476,15 +492,10 @@ def generate_app(
                             status_code=422, detail="サンプリングレートが異なるクエリがあります"
                         )
 
-                    with TemporaryFile() as wav_file:
+                    with TemporaryFile(suffix=".wav") as wav_file:
 
                         wave = engine.synthesis(query=queries[i], speaker_id=speaker)
-                        soundfile.write(
-                            file=wav_file,
-                            data=wave,
-                            samplerate=sampling_rate,
-                            format="WAV",
-                        )
+                        write_wav(wav_file, wave, sampling_rate)
                         wav_file.seek(0)
                         zip_file.writestr(f"{str(i + 1).zfill(3)}.wav", wav_file.read())
 
@@ -583,13 +594,8 @@ def generate_app(
             output_stereo=query.outputStereo,
         )
 
-        with NamedTemporaryFile(delete=False) as f:
-            soundfile.write(
-                file=f,
-                data=morph_wave,
-                samplerate=morph_param.fs,
-                format="WAV",
-            )
+        with NamedTemporaryFile(delete=False, suffix=".wav") as f:
+            write_wav(f, morph_wave, morph_param.fs)
 
         return FileResponse(
             f.name,
@@ -619,13 +625,8 @@ def generate_app(
         except ConnectBase64WavesException as err:
             return HTTPException(status_code=422, detail=str(err))
 
-        with NamedTemporaryFile(delete=False) as f:
-            soundfile.write(
-                file=f,
-                data=waves_nparray,
-                samplerate=sampling_rate,
-                format="WAV",
-            )
+        with NamedTemporaryFile(delete=False, suffix=".wav") as f:
+            write_wav(f, waves_nparray, sampling_rate)
 
         return FileResponse(
             f.name,

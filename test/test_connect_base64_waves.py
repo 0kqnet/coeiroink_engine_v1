@@ -4,7 +4,9 @@ from unittest import TestCase
 
 import numpy as np
 import numpy.testing
-import soundfile
+import struct
+import wave as wave_module
+
 from scipy.signal import resample
 
 from voicevox_engine.utility import ConnectBase64WavesException, connect_base64_waves
@@ -21,16 +23,41 @@ def generate_sine_wave_ndarray(
 
 def encode_bytes(wave_ndarray: np.ndarray, samplerate: int) -> bytes:
     wave_bio = io.BytesIO()
-    soundfile.write(
-        file=wave_bio,
-        data=wave_ndarray,
-        samplerate=samplerate,
-        format="WAV",
-        subtype="FLOAT",
-    )
+    _write_wav_float(wave_bio, wave_ndarray, samplerate)
     wave_bio.seek(0)
 
     return wave_bio.getvalue()
+
+
+def _write_wav_float(file, data: np.ndarray, samplerate: int):
+    """float32形式でWAVを書き出す（soundfile subtype="FLOAT"の代替）"""
+    data = data.astype(np.float32)
+    channels = 1 if data.ndim == 1 else data.shape[1]
+    # wave module doesn't support float, so write raw WAV manually
+    flat = data.flatten()
+    raw_data = struct.pack(f"<{len(flat)}f", *flat)
+    num_frames = len(flat) // channels
+    # Build WAV file manually
+    sampwidth = 4  # 32-bit float
+    byte_rate = samplerate * channels * sampwidth
+    block_align = channels * sampwidth
+    data_size = len(raw_data)
+    # fmt chunk: PCM_FLOAT = 3
+    fmt_chunk = struct.pack(
+        "<4sIHHIIHH",
+        b"fmt ",
+        16,
+        3,  # IEEE float
+        channels,
+        samplerate,
+        byte_rate,
+        block_align,
+        sampwidth * 8,
+    )
+    data_chunk = struct.pack("<4sI", b"data", data_size) + raw_data
+    riff_size = 4 + len(fmt_chunk) + len(data_chunk)
+    header = struct.pack("<4sI4s", b"RIFF", riff_size, b"WAVE")
+    file.write(header + fmt_chunk + data_chunk)
 
 
 def generate_sine_wave_bytes(

@@ -3,8 +3,35 @@ import io
 from typing import List, Tuple
 
 import numpy as np
-import soundfile
+import wave as wave_module
+
+import struct
+
 from scipy.signal import resample
+
+
+def _read_wav(file):
+    """soundfile.readの代替。(ndarray, samplerate)を返す"""
+    with wave_module.open(file, "rb") as wf:
+        channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        samplerate = wf.getframerate()
+        frames = wf.readframes(wf.getnframes())
+
+    if sampwidth == 2:
+        data = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32767.0
+    elif sampwidth == 4:
+        # 32-bit float WAV
+        data = np.frombuffer(frames, dtype=np.float32)
+    elif sampwidth == 1:
+        data = (np.frombuffer(frames, dtype=np.uint8).astype(np.float32) - 128) / 128.0
+    else:
+        raise ConnectBase64WavesException("wavファイルを読み込めませんでした")
+
+    if channels > 1:
+        data = data.reshape(-1, channels)
+
+    return data, samplerate
 
 
 class ConnectBase64WavesException(Exception):
@@ -34,7 +61,9 @@ def decode_base64_waves(waves: List[str]) -> List[Tuple[np.ndarray, int]]:
         except ValueError:
             raise ConnectBase64WavesException("base64デコードに失敗しました")
         try:
-            _data = soundfile.read(io.BytesIO(wav_bin))
+            _data = _read_wav(io.BytesIO(wav_bin))
+        except ConnectBase64WavesException:
+            raise
         except Exception:
             raise ConnectBase64WavesException("wavファイルを読み込めませんでした")
         waves_nparray_sr.append(_data)
