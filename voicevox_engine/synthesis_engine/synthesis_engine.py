@@ -3,7 +3,8 @@ from itertools import chain
 from typing import List, Optional, Tuple
 
 import numpy
-from scipy.signal import resample
+import torch
+import torchaudio.functional as F
 
 from ..acoustic_feature_extractor import OjtPhoneme
 from ..model import AccentPhrase, AudioQuery, Mora
@@ -489,10 +490,13 @@ class SynthesisEngine(SynthesisEngineBase):
 
         # 出力サンプリングレートがデフォルト(decode forwarderによるもの、24kHz)でなければ、それを適用する
         if query.outputSamplingRate != self.default_sampling_rate:
-            wave = resample(
-                wave,
-                query.outputSamplingRate * len(wave) // self.default_sampling_rate,
+            wave_tensor = torch.from_numpy(wave).unsqueeze(0)
+            wave_tensor = F.resample(
+                wave_tensor,
+                self.default_sampling_rate,
+                query.outputSamplingRate,
             )
+            wave = wave_tensor.squeeze(0).numpy()
 
         # ステレオ変換
         # 出力設定がステレオなのであれば、ステレオ化する
