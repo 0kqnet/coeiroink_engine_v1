@@ -1,3 +1,5 @@
 * text=auto
+Dockerfile text eol=lf
+*.sh text eol=lf
 *.png -text
 *.wav -text

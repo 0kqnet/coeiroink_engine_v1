@@ -14,4 +14,8 @@ if [ -z "$(ls -A "$SPEAKER_INFO_DIR" 2>/dev/null)" ]; then
     echo "speaker_info download complete."
 fi
 
+if [[ " $* " == *" --use_gpu "* ]]; then
+    .venv/bin/python verify_cuda.py
+fi
+
 exec "$@"

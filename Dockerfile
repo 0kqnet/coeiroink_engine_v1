@@ -1,7 +1,12 @@
 # syntax=docker/dockerfile:1.4
 
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
 ARG DEBIAN_FRONTEND=noninteractive
+
+ARG PYTHON_VERSION=3.9
+ARG PYTORCH_VERSION=2.7.1
+ARG TORCHVISION_VERSION=0.22.1
+ARG TORCHAUDIO_VERSION=2.7.1
 
 WORKDIR /opt/voicevox_engine
 
@@ -13,19 +18,34 @@ RUN <<EOF
     rm -rf /var/lib/apt/lists/*
 EOF
 
-# Install uv (system-wide)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Install a pinned uv release without depending on GHCR authentication.
+ADD https://astral.sh/uv/0.11.1/install.sh /tmp/uv-installer.sh
+RUN env UV_UNMANAGED_INSTALL=/usr/local/bin sh /tmp/uv-installer.sh \
+    && rm /tmp/uv-installer.sh
 
-# Install Python 3.8 and dependencies (including coeiroink_core)
+# PyTorch 2.7 + CUDA 12.8 is the first stable combination with native
+# Blackwell (RTX 50 series / sm_120) support.  Keep Python 3.9 because the
+# COEIROINK v1 / ESPnet dependency set was built for the Python 3.9 era.
+COPY constraints-gpu.txt ./
+RUN uv venv --python "${PYTHON_VERSION}" .venv
+RUN uv pip install --python .venv/bin/python \
+        "torch==${PYTORCH_VERSION}" \
+        "torchvision==${TORCHVISION_VERSION}" \
+        "torchaudio==${TORCHAUDIO_VERSION}" \
+        --index-url https://download.pytorch.org/whl/cu128
 COPY requirements.txt ./
-RUN uv venv --python 3.8 .venv
-RUN uv pip install --python .venv/bin/python setuptools "numpy==1.20.0" "cython==0.29.24"
-RUN uv pip install --python .venv/bin/python --no-build-isolation -r requirements.txt git+https://github.com/0kqnet/coeiroink_core.git
-RUN uv pip install --python .venv/bin/python "torch==1.13.1+cu116" "torchvision==0.14.1+cu116" "torchaudio==0.13.1" --extra-index-url https://download.pytorch.org/whl/cu116
+RUN uv pip install --python .venv/bin/python setuptools "numpy==1.24.4" "cython==0.29.24"
+RUN uv pip install --python .venv/bin/python \
+        --no-build-isolation \
+        --constraint constraints-gpu.txt \
+        -r requirements.txt \
+        git+https://github.com/0kqnet/coeiroink_core.git
+RUN uv pip check --python .venv/bin/python \
+    && .venv/bin/python -c "import torch; flags = torch._C._cuda_getArchFlags().split(); assert torch.__version__ == '${PYTORCH_VERSION}+cu128', torch.__version__; assert 'sm_120' in flags, flags; from espnet2.bin.tts_inference import Text2Speech"
 
 # Copy app files
 COPY voicevox_engine/ ./voicevox_engine/
-COPY run.py generate_licenses.py presets.yaml default.csv default_setting.yml engine_manifest.json ./
+COPY run.py verify_cuda.py generate_licenses.py presets.yaml default.csv default_setting.yml engine_manifest.json ./
 COPY ui_template/ ./ui_template/
 COPY engine_manifest_assets/ ./engine_manifest_assets/
 COPY docs/ ./docs/

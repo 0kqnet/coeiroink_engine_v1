@@ -286,6 +286,24 @@ VOICEVOXではセキュリティ保護のため`localhost`・`127.0.0.1`・`app:
 
 ## Docker イメージ
 
+### COEIROINK v1 GPU版（このリポジトリ）
+
+RTX 50シリーズを含むNVIDIA GPUでは、CUDA 12.8を実行できるNVIDIAドライバと、
+NVIDIA Container Toolkitに対応したDocker環境が必要です。
+
+```bash
+docker compose build
+docker compose up -d
+docker compose logs -f coeiroink-engine
+```
+
+起動時にCUDAの事前検査が実行されます。ログに `CUDA preflight: OK` と
+`Uvicorn running on http://0.0.0.0:50031` が出たら、APIは
+<http://127.0.0.1:50031> で利用できます。
+
+依存関係やベースイメージを変更した後は、古いイメージを再利用しないよう
+`docker compose build` を再実行してください。
+
 ### CPU
 
 ```bash

@@ -1,0 +1,4 @@
+# Keep the legacy ESPnet dependency resolver from replacing the Blackwell build.
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1
